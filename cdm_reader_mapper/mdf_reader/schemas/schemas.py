@@ -140,7 +140,9 @@ def _normalize_schema(schema: SchemaDict) -> SchemaDict:
         "parsing_order": header.get("parsing_order") or [{"s": list(sections.keys())}],
     }
 
-    return {**schema, "header": header, "sections": sections}
+    result = {**schema, "header": header, "sections": sections}
+
+    return result
 
 
 def read_schema(

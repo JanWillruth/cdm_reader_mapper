@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import ast
-import csv
 import logging
 import os
 
-from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, Callable
 
 import pandas as pd
-
-from .. import properties
 
 from cdm_reader_mapper.common.pandas_TextParser_hdlr import make_copy
 
@@ -347,10 +343,6 @@ def process_textfilereader(
         Positional arguments passed to `func`.
     func_kwargs : dict, optional
         Keyword arguments passed to `func`.
-    read_kwargs : dict or tuple of dict, optional
-        Arguments to pass to `pd.read_csv` when reconstructing output DataFrames.
-    write_kwargs : dict, optional
-        Arguments to pass to `DataFrame.to_csv` when buffering output.
     makecopy : bool, default True
         If True, makes a copy of each input DataFrame before processing.
 
@@ -364,59 +356,41 @@ def process_textfilereader(
     if func_kwargs is None:
         func_kwargs = {}
 
-    buffers = []
-    columns = []
-
     if makecopy is True:
         reader = make_copy(reader)
 
+    accumulators: list[list[pd.DataFrame]] = []
     output_add = []
 
     for df in reader:
         outputs = func(df, *func_args, **func_kwargs)
+
+        # Normalize outputs to a tuple for iteration
         if not isinstance(outputs, tuple):
             outputs = (outputs,)
 
-        output_dfs = []
-        first_chunk = not buffers
+        current_dfs = []
+        is_waiting_for_init = not accumulators
 
         for out in outputs:
             if isinstance(out, pd.DataFrame):
-                output_dfs.append(out)
-            elif first_chunk:
+                current_dfs.append(out)
+            elif is_waiting_for_init:
+                # Capture non-DataFrame outputs only before the structure is locked
                 output_add.append(out)
 
-        if not buffers:
-            buffers = [StringIO() for _ in output_dfs]
-            columns = [out.columns for out in output_dfs]
+        # Initialize accumulators if this is the first chunk yielding DataFrames
+        if is_waiting_for_init:
+            if current_dfs:
+                accumulators = [[d] for d in current_dfs]
+        else:
+            # Append to existing accumulators.
+            for acc, new_df in zip(accumulators, current_dfs):
+                acc.append(new_df)
 
-        for buffer, out_df in zip(buffers, output_dfs):
-            out_df.to_csv(
-                buffer,
-                header=False,
-                mode="a",
-                index=False,
-                quoting=csv.QUOTE_NONE,
-                sep=properties.internal_delimiter,
-                quotechar="\0",
-                escapechar="\0",
-                **write_kwargs,
-            )
+    # Concatenate chunks.
+    final_dfs = [pd.concat(chunks, ignore_index=True) for chunks in accumulators]
 
-    if isinstance(read_kwargs, dict):
-        read_kwargs = tuple(read_kwargs for _ in range(len(buffers)))
+    result_tuple = tuple(final_dfs + output_add)
 
-    result_dfs = []
-    for buffer, cols, rk in zip(buffers, columns, read_kwargs):
-        buffer.seek(0)
-        result_dfs.append(
-            pd.read_csv(
-                buffer,
-                names=cols,
-                delimiter=properties.internal_delimiter,
-                quotechar="\0",
-                escapechar="\0",
-                **rk,
-            )
-        )
-    return tuple(result_dfs + output_add)
+    return result_tuple

@@ -208,7 +208,7 @@ def read_mdf(
         ext_schema_file=ext_schema_file,
     )
 
-    return filereader.read(
+    result = filereader.read(
         source=source,
         pd_kwargs=pd_kwargs,
         xr_kwargs=xr_kwargs,
@@ -217,6 +217,8 @@ def read_mdf(
         validate_kwargs=validate_kwargs,
         select_kwargs=select_kwargs,
     )
+
+    return result
 
 
 def read_data(
@@ -286,7 +288,7 @@ def read_data(
     if not mask.empty:
         mask = mask.reindex(columns=data.columns)
 
-    return DataBundle(
+    result = DataBundle(
         data=data,
         columns=data.columns,
         dtypes=dtype,
@@ -295,3 +297,5 @@ def read_data(
         imodel=imodel,
         encoding=encoding,
     )
+
+    return result
